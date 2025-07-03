@@ -68,7 +68,7 @@ type BinanceClient struct {
 
 // NewBinanceClient creates a new Binance client
 func NewBinanceClient() *BinanceClient {
-	client := &BinanceClient{
+	return &BinanceClient{
 		baseURL: "https://fapi.binance.com",
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
@@ -86,14 +86,6 @@ func NewBinanceClient() *BinanceClient {
 		fundingCache: make(map[string]map[int64]*FundingRateData),
 		cacheMutex:   sync.RWMutex{},
 	}
-
-	// Set logger level to reduce console output
-	client.logger.SetLevel(logrus.WarnLevel)
-	client.logger.SetFormatter(&logrus.TextFormatter{
-		FullTimestamp: true,
-	})
-
-	return client
 }
 
 // adjustRateLimit adjusts the rate limiter based on rate limit headers
@@ -425,20 +417,12 @@ type DataProcessor struct {
 
 // NewDataProcessor creates a new data processor
 func NewDataProcessor() *DataProcessor {
-	processor := &DataProcessor{
+	return &DataProcessor{
 		logger:     logrus.New(),
 		csvWriters: make(map[string]*csv.Writer),
 		csvFiles:   make(map[string]*os.File),
 		mutex:      sync.RWMutex{},
 	}
-
-	// Set logger level to reduce console output
-	processor.logger.SetLevel(logrus.WarnLevel)
-	processor.logger.SetFormatter(&logrus.TextFormatter{
-		FullTimestamp: true,
-	})
-
-	return processor
 }
 
 // InitializeCSVWriter creates a CSV file for a symbol
@@ -563,10 +547,33 @@ func (d *DataProcessor) CloseCSVFiles() {
 
 // ProcessKlineData processes incoming kline data
 func (d *DataProcessor) ProcessKlineData(symbol string, data KlineData, fundingData *FundingRateData) {
+	// Convert timestamp to readable format
+	openTime := time.Unix(data.OpenTime/1000, 0)
+	closeTime := time.Unix(data.CloseTime/1000, 0)
+
+	logFields := logrus.Fields{
+		"symbol":     symbol,
+		"openTime":   openTime.Format("2006-01-02 15:04:05"),
+		"closeTime":  closeTime.Format("2006-01-02 15:04:05"),
+		"openPrice":  data.OpenPrice,
+		"highPrice":  data.HighPrice,
+		"lowPrice":   data.LowPrice,
+		"closePrice": data.ClosePrice,
+		"volume":     data.Volume,
+		"trades":     data.NumberOfTrades,
+	}
+
+	if fundingData != nil {
+		logFields["fundingRate"] = fundingData.FundingRate
+	}
+
+	d.logger.WithFields(logFields).Info("New kline data received")
+
 	// Write to CSV
 	if err := d.WriteKlineToCSV(symbol, data, fundingData); err != nil {
 		d.logger.Errorf("Failed to write to CSV for %s: %v", symbol, err)
 	}
+
 }
 
 // FetchHistoricalDataForSymbol fetches historical data for a single symbol
@@ -607,13 +614,10 @@ func (c *BinanceClient) FetchHistoricalDataForSymbol(symbol string, dataProcesso
 			currentEndTime = endTimeMs
 		}
 
-		// Only log every 10th batch to reduce console output
-		if batchCount%10 == 1 {
-			c.logger.Infof("[%s] Fetching batch %d (from %s to %s)",
-				symbol, batchCount,
-				time.UnixMilli(currentStartTime).Format("2006-01-02 15:04:05"),
-				time.UnixMilli(currentEndTime).Format("2006-01-02 15:04:05"))
-		}
+		c.logger.Infof("[%s] Fetching batch %d (from %s to %s)",
+			symbol, batchCount,
+			time.UnixMilli(currentStartTime).Format("2006-01-02 15:04:05"),
+			time.UnixMilli(currentEndTime).Format("2006-01-02 15:04:05"))
 
 		klines, err := c.GetKlineData(symbol, "1m", 1000, &currentStartTime, &currentEndTime)
 		if err != nil {
@@ -622,10 +626,7 @@ func (c *BinanceClient) FetchHistoricalDataForSymbol(symbol string, dataProcesso
 			continue
 		}
 
-		// Only log every 10th batch to reduce console output
-		if batchCount%10 == 1 {
-			c.logger.Infof("[%s] Fetched %d klines (batch %d)", symbol, len(klines), batchCount)
-		}
+		c.logger.Infof("[%s] Fetched %d klines (batch %d)", symbol, len(klines), batchCount)
 		totalRecords += len(klines)
 
 		// Process and write to CSV with funding rates
@@ -683,23 +684,15 @@ func (c *BinanceClient) FetchHistoricalData(symbols []string, dataProcessor *Dat
 	return nil
 }
 
-// min returns the minimum of two integers
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
 func main() {
 	// Load environment variables
 	if err := godotenv.Load(); err != nil {
 		log.Println("No .env file found, using default configuration")
 	}
 
-	// Set up logging - Only show warnings and errors to reduce console output
+	// Set up logging
 	logger := logrus.New()
-	logger.SetLevel(logrus.WarnLevel) // Changed from InfoLevel to WarnLevel
+	logger.SetLevel(logrus.InfoLevel)
 	logger.SetFormatter(&logrus.TextFormatter{
 		FullTimestamp: true,
 	})
