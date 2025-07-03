@@ -732,11 +732,6 @@ func main() {
 
 	logger.Infof("Found %d USDT futures symbols", len(symbols))
 
-	// Optional: Log first few symbols for verification
-	if len(symbols) > 0 {
-		logger.Infof("Sample symbols: %v", symbols[:min(5, len(symbols))])
-	}
-
 	// Create clients
 	binanceClient := NewBinanceClient()
 	dataProcessor := NewDataProcessor()
